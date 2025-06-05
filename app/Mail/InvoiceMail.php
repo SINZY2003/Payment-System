@@ -8,12 +8,14 @@ use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Mail\Mailables\Attachment;
 
-class InvoiceMail extends Mailable
+class InvoiceMail extends Mailable implements ShouldQueue
 {
     use Queueable, SerializesModels;
 
     public $charge;
+    protected $invoiceNumber;
 
     /**
      * Create a new message instance.
@@ -21,6 +23,13 @@ class InvoiceMail extends Mailable
     public function __construct($charge)
     {
         $this->charge = $charge;
+        
+        // Generate a unique invoice number (timestamp + last 4 digits of charge ID)
+        $chargeIdLastPart = substr($charge->id, -4);
+        $this->invoiceNumber = date('Ymd') . '-' . $chargeIdLastPart;
+        
+        // Add the invoice number to the charge object so it can be accessed in the view
+        $this->charge->invoice_number = $this->invoiceNumber;
     }
 
     /**
@@ -28,8 +37,10 @@ class InvoiceMail extends Mailable
      */
     public function envelope(): Envelope
     {
+        $companyName = config('app.name', 'SinzoleDesigns');
+        
         return new Envelope(
-            subject: 'Payment Invoice',
+            subject: "Receipt #{$this->invoiceNumber} for your payment to {$companyName}",
         );
     }
 
@@ -40,6 +51,15 @@ class InvoiceMail extends Mailable
     {
         return new Content(
             view: 'emails.invoice',
+            with: [
+                'charge' => $this->charge,
+                'receiptUrl' => $this->charge->receipt_url ?? null,
+                'customerName' => $this->charge->customer_name ?? 'Valued Customer',
+                'companyName' => config('app.name', 'SinzoleDesigns'),
+                'companyEmail' => config('mail.from.address', 'support@sinzoledesigns.com'),
+                'companyLogo' => asset('images/logo.png'),
+                'paymentDate' => \Carbon\Carbon::createFromTimestamp($this->charge->created)->format('F j, Y'),
+            ],
         );
     }
 
@@ -50,6 +70,7 @@ class InvoiceMail extends Mailable
      */
     public function attachments(): array
     {
+        // If we have a PDF invoice, we could attach it here
         return [];
     }
 }
